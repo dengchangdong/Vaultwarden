@@ -45,19 +45,16 @@ jobs:
           repository: ${{ env.UPSTREAM_REPO }}
           ref: ${{ steps.get_version.outputs.tag }}
 
-      # 1. 安装 musl-tools (系统级依赖)
       - name: Install Dependencies
         if: steps.check_release.outputs.skip == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      # 2. 设置 Rust (这里去掉了 with target，防止与 upstream 配置冲突)
       - name: Setup Rust
         if: steps.check_release.outputs.skip == 'false'
         uses: dtolnay/rust-toolchain@stable
 
-      # 3. 【关键修复】手动添加 musl target
       - name: Add Musl Target
         if: steps.check_release.outputs.skip == 'false'
         run: rustup target add x86_64-unknown-linux-musl
@@ -65,19 +62,23 @@ jobs:
       - name: Build Static Binary
         if: steps.check_release.outputs.skip == 'false'
         run: |
-          # 必须包含 vendored_openssl 才能在 musl 环境编译通过
           cargo build --release --target x86_64-unknown-linux-musl --features "sqlite,vendored_openssl"
           
           mkdir -p build_output
           cp target/x86_64-unknown-linux-musl/release/vaultwarden build_output/
           
+      # ---【关键修改】自动获取最新的 Web Vault 版本 ---
       - name: Download Web Vault
         if: steps.check_release.outputs.skip == 'false'
         run: |
-          TAG=${{ steps.get_version.outputs.tag }}
-          echo "Downloading Web Vault for $TAG..."
-          # 下载 Web Vault
-          wget https://github.com/dani-garcia/bw_web_builds/releases/download/$TAG/bw_web_$TAG.tar.gz -O web-vault.tar.gz
+          echo "Determining latest Web Vault version..."
+          # 从 bw_web_builds 获取最新 Release 的 Tag
+          WEB_TAG=$(curl -s https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest | jq -r .tag_name)
+          
+          echo "Latest Web Vault tag is: $WEB_TAG"
+          
+          echo "Downloading Web Vault..."
+          wget https://github.com/dani-garcia/bw_web_builds/releases/download/$WEB_TAG/bw_web_$WEB_TAG.tar.gz -O web-vault.tar.gz
           
           tar -xzvf web-vault.tar.gz
           mv web-vault build_output/web-vault
@@ -100,4 +101,4 @@ jobs:
             
             **Contains:**
             - Static Binary (x86_64 musl)
-            - Web Vault
+            - Web Vault (Version: Latest from bw_web_builds)
