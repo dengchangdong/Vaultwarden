@@ -32,38 +32,40 @@ jobs:
         git config --global user.name "GitHub Action"
         git config --global user.email "action@github.com"
 
-    # 3. 执行合并逻辑（核心步骤）
+    # 3. 执行合并逻辑
     - name: Merge Upstream (Protecting .github)
       run: |
-        # 添加官方仓库作为 upstream
         git remote add upstream https://github.com/dani-garcia/vaultwarden.git
         git fetch upstream main
 
-        echo "正在合并官方代码..."
-        
-        # 尝试合并，参数 --no-commit 让我们有机会在提交前修改文件
-        # || true 允许合并存在冲突时不立即报错（我们将在下一步处理 .github）
+        echo ">>> 正在合并官方代码..."
+        # 尝试合并，允许失败
         git merge upstream/main --no-commit --allow-unrelated-histories || true
 
-        echo "正在恢复本地 .github 目录..."
-        # 关键命令：强制将 .github 目录重置为当前仓库的版本（HEAD）
-        # 这会丢弃 upstream 对 .github 目录的所有更改（包括新增、修改、删除）
+        echo ">>> 正在强制恢复本地 .github 目录..."
+        # 1. 把工作区的 .github 目录强制恢复成你本地的样子
         git checkout HEAD -- .github
 
-        # 检查是否除了 .github 之外还有未解决的冲突
-        # grep -q 用于静默检查文件中是否包含冲突标记
-        if git grep -Iq "<<<<<<< HEAD" .; then
-            echo "Error: 在 .github 目录之外检测到代码冲突，无法自动合并。"
-            echo "请手动解决冲突。"
+        echo ">>> 正在标记 .github 冲突为已解决..."
+        # 2. 【关键修正】告诉 Git 索引：.github 下的状态就是最终结果
+        # 对于你删除的文件，这一步会确认删除；对于你保留的文件，这一步确认保留。
+        git add .github
+
+        echo ">>> 检查是否存在其他冲突..."
+        # 3. 检查除 .github 以外的文件是否还有未解决的冲突
+        # 我们列出所有包含冲突标记的文件，并过滤掉 .github 目录
+        CONFLICT_FILES=$(git grep -Il "<<<<<<< HEAD" . | grep -v "^.github/" || true)
+
+        if [ -n "$CONFLICT_FILES" ]; then
+            echo "Error: 检测到以下文件存在无法自动解决的冲突："
+            echo "$CONFLICT_FILES"
+            echo "请手动解决上述冲突。"
             git merge --abort
             exit 1
         fi
 
-        # 提交更改
-        # 如果没有更改（例如官方没更新），commit 会失败，所以加了 || echo
+        echo ">>> 提交更改..."
+        # 提交更改。如果没有东西可提交（比如官方没更新），忽略错误
         git commit -m "Sync from upstream (preserving local .github config)" || echo "No changes to commit"
 
-    # 4. 推送更改
-    - name: Push changes
-      run: |
-        git push origin main
+    # ... 后面的步骤不变 (Push changes) ...
